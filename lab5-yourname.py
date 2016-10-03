@@ -26,26 +26,37 @@ class Sensor:
     Communication between threads is handled by queues
     """
 
-    def __init__(self, host, port, cert_file=''):
-        if cert_file:
-            self.ssl = True
-            self.cert_file = cert_file
-        self.host = host
-        self.port = port
+    def __init__(self, mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period):
+        """
+        :param mcast_addr: udp multicast (ip, port) tuple.
+        :param sensor_pos: (x,y) sensor position tuple.
+        :param sensor_range: range of the sensor ping (radius).
+        :param grid_size: length of the  of the grid (which is always square).
+        :param ping_period: time in seconds between multicast pings.
+        """
         self.receive_queue = Queue()
         self.send_queue = Queue()
+        self.mcast_addr = mcast_addr
+        self.sensor_pos = sensor_pos
+        self.sensor_range = sensor_range
+        self.sensor_val = sensor_val
+        self.grid_size = grid_size
+        self.ping_period = ping_period
+
 
     def run(self):
         """
         Runner function
-        :return:
         """
         ui_thread = UI(self.receive_queue, self.send_queue)
-        work_thread = Worker(self.receive_queue, self.send_queue, self.host, self.port, self.cert_file)
+        work_thread = Worker(self.receive_queue, self.send_queue, mcast_addr,
+                             self.sensor_pos, self.sensor_range, self.sensor_val, self.grid_size, self.ping_period)
         ui_thread.start()
         work_thread.start()
 
         while work_thread.is_alive():
+            # If the ui thread died also stop the worker thread
+            # The ui thread could die from clicking on the UI stop button
             if not ui_thread.is_alive():
                 work_thread.stop()
                 break
@@ -85,18 +96,70 @@ class UI(Thread):
 
 
 class Worker(Thread):
-    def __init__(self, uiprint_queue, command_queue, group=None, target=None, name=None, args=(), kwargs=None,
-                 verbose=None):
+    def __init__(self, uiprint_queue, command_queue,
+                 mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period,
+                 group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
         # Receive queue
         self.uiprint_queue = uiprint_queue
         self.command_queue = command_queue
+        self.mcast_addr = mcast_addr
         self.go = True
+
+        # Setup sockets
+        self.mcast_socket = self.create_multicast_listener_socket()
+        self.peer_socket = self.create_peer_socket()
+
+        # The sensor neighbour list
+        self.neighbour_list = []
+
+        # Setup sensor message helper class
+        self.message = Message()
+
+        # Setup echoAlgo
+        self.echoAlgo = EchoAlgo(self.peer_socket)
+
         super(Worker, self).__init__(group, target, name, args, kwargs, verbose)
 
     def run(self):
+        """
+        Main runner function
+        """
 
-        self.echo_algo = EchoAlgo(socket)
+        while self.go:
+            readable_sockets, writable_sockets, exception_sockets = select.select([self.mcast_socket, self.peer_socket],
+                                                                                  [], [], 1)
+            for r in readable_sockets:
+                data = r.recvfrom(1024)
+                if data:
+                    data_decoded = self.message.message_decode(data)
 
+                    # Get message type
+                    if data_decoded[0] == self.message.MSG_PING:
+                        # TODO Do your thing
+                        # Add sensors to self.neighbour_list
+                        # Print some message to the UI, for example the initiating sensor
+                        self.uiprint_queue.put(data_decoded[3])
+                    if data_decoded[0] == self.message.MSG_ECHO:
+                        self.echoAlgo.received_echo(self.neighbour_list)
+                        # print some useful stuff to ui
+                        self.uiprint_queue.put('something')
+            if not self.command_queue.empty():
+                # Handle a command received from ui
+                command = self.command_queue.get()
+                self.handle_command(command)
+
+    def stop(self):
+        """
+        Necessary to stop the infinite loop
+        """
+        self.go = False
+
+    def create_multicast_listener_socket(self):
+        """
+        Copy paste function creating a multicast UDP socket
+        Receives multicast messages
+        :return: the multicast socket
+        """
         # -- Create the multicast listener socket. --
         mcast = socket.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         # Sets the socket address as reusable so you can run multiple instances
@@ -106,23 +169,18 @@ class Worker(Thread):
         mreq = struct.pack('4sl', inet_aton(mcast_addr[0]), INADDR_ANY)
         mcast.setsockopt(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq)
         if sys.platform == 'win32':  # windows special case
-            mcast.bind(('localhost', mcast_addr[1]))
+            mcast.bind(('localhost', self.mcast_addr[1]))
         else:  # should work for everything else
-            mcast.bind(mcast_addr)
+            mcast.bind(self.mcast_addr)
+        return mcast
 
-        # -- Create the multicast listener socket. --
-        mcast = socket.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        # Sets the socket address as reusable so you can run multiple instances
-        # of the program on the same machine at the same time.
-        mcast.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        # Subscribe the socket to multicast messages from the given address.
-        mreq = struct.pack('4sl', inet_aton(mcast_addr[0]), INADDR_ANY)
-        mcast.setsockopt(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq)
-        if sys.platform == 'win32':  # windows special case
-            mcast.bind(('localhost', mcast_addr[1]))
-        else:  # should work for everything else
-            mcast.bind(mcast_addr)
-
+    def create_peer_socket(self):
+        """
+        Copy paste function creating the peer UDP socket
+        Sends multicast messages
+        Receives unicast messages
+        :return: Peer socket
+        """
         # -- Create the peer-to-peer socket. --
         peer = socket.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         # Set the socket multicast TTL so it can send multicast messages.
@@ -132,30 +190,15 @@ class Worker(Thread):
             peer.bind(('localhost', INADDR_ANY))
         else:  # should work for everything else
             peer.bind(('', INADDR_ANY))
+        return peer
 
-        while self.go:
-            readable_sockets, writable_sockets, exception_sockets = select.select([], [], [], 1)
-            for r in readable_sockets:
-                data = r.recv(1024)
-                if data:
-                # if data is ping then
-                # elif data is echo do something else
-                else:
-                    # Stop working when server disconnects
-                    self.uiprint_queue.put('Server disconnected')
-                    return
-                print('Worker received: ' + message)
-                self.uiprint_queue.put(message)
-            if not self.command_queue.empty():
-                # SEND TO OTHER CLIENTS
-                # if command is PING send ping to other clients
-                # If command is ECHO send echo to other clients
-                message = self.command_queue.get().encode()
-                print('Worker sending: ' + message.decode())
-
-    def stop(self):
-        self.go = False
-
+    def handle_command(self, command):
+        # Do a manual ping
+        if command == "PING":
+            # TODO Run the ping command
+            None
+        if command == "ECHO":
+            self.echoAlgo.received_echo(self.neighbour_list)
 
 class EchoAlgo():
     def __init__(self, socket):
@@ -164,24 +207,8 @@ class EchoAlgo():
     def send_echo(self, neighbour_list):
         return None
 
-    def receive_echo(self, neighbour_list):
+    def received_echo(self, neighbour_list):
         return None
-
-
-# def main(mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period):
-#     """
-#     mcast_addr: udp multicast (ip, port) tuple.
-#     sensor_pos: (x,y) sensor position tuple.
-#     sensor_range: range of the sensor ping (radius).
-#     sensor_val: sensor value.
-#     grid_size: length of the  of the grid (which is always square).
-#     ping_period: time in seconds between multicast pings.
-#     """
-#
-#     # -- This is the event loop. --
-#     while window.update():
-#         pass
-
 
 # -- program entry point --
 if __name__ == '__main__':
@@ -206,5 +233,6 @@ if __name__ == '__main__':
     else:
         value = randint(0, 100)
     mcast_addr = (args.group, args.port)
-    # main(mcast_addr, pos, args.range, value, args.grid, args.period)
-    Sensor(args.host, args.port, args.cert).run()  # TODO
+
+    # RUN
+    Sensor(mcast_addr, pos, args.range, value, args.grid, args.period).run()
