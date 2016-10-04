@@ -195,21 +195,24 @@ class Worker(Thread):
             self.message_pong(data_decoded, address)
 
     def message_ping(self, data_decoded, address):
+        """
+        Our multicast socket is also in the readable list, so we have to
+        check if the ping message our own, and in this case, just print a
+        message. If not, we calculate if we are in the initiating sensor's
+        range. In that case, send a pong, if not, print a message.
+        """
         initiator = data_decoded[2]
-        # Add sensors to self.neighbour_list
-        # Print some message to the UI, for example the initiating sensor
         if initiator == self.sensor.sensor_pos:
-            self.uiprint_queue.put("Ping send")
+            self.uiprint_queue.put("Ping sent")
         else:
             self_pos = self.sensor.sensor_pos
             is_in_range = abs(initiator[0] - self_pos[0]) <= self.sensor.sensor_range \
                           and abs(initiator[1] - self_pos[1]) <= self.sensor.sensor_range
-            print(is_in_range)
             if is_in_range:
-                msg = self.message.message_encode(1, 0, initiator, self_pos)
+                msg = self.message.message_encode(self.message.MSG_PONG, 0, initiator, self_pos)
                 self.peer_socket.sendto(msg, address)
-                print('Received ping, sending pong to...' + str(address))
-                self.uiprint_queue.put('Received ping, sending pong to...' + str(address))
+                print('Received ping, sending pong to...' + str(initiator))
+                self.uiprint_queue.put('Received ping, sending pong to...' + str(initiator))
             else:
                 self.uiprint_queue.put("Received ping from " + str(initiator) + ", not in range")
 
@@ -238,6 +241,11 @@ class Worker(Thread):
         # Do a manual ping
         if command == "ping":
             self.ping()
+        if command == "list":
+            self.uiprint_queue.put("Here's a list with all the neighbours in range: " + str(self.sensor.neighbours))
+        if command == "move":
+            self.sensor.sensor_pos = random_position(self.sensor.grid_size)
+            self.uiprint_queue.put("My new position is " + str(self.sensor.sensor_pos))
         if command == "echo":
             # Create a new echo instance and send echo
             self.echoAlgo_sequence_nr += 1
@@ -250,6 +258,7 @@ class Worker(Thread):
             self.echoAlgo[sequence].send_echo()
 
     def ping(self):
+        self.sensor.neighbours = []
         msg = self.message.message_encode(self.message.MSG_PING, 0, self.sensor.sensor_pos, self.sensor.sensor_pos)
         self.peer_socket.sendto(msg, self.sensor.mcast_addr)
 
