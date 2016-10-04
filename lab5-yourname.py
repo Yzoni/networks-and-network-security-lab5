@@ -213,7 +213,7 @@ class Worker(Thread):
 
     def ping(self):
         msg = self.message.message_encode(0, 0, self.sensor.sensor_pos, self.sensor.sensor_pos)
-        self.mcast_socket.sendto(msg, self.sensor.mcast_addr)
+        self.peer_socket.sendto(msg, self.sensor.mcast_addr)
 
     def neighbour_discovery(self):
         # still think that this has to be in a subprocess and run in paralel with the main worker
