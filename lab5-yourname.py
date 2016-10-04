@@ -2,7 +2,9 @@
 ## NAME:
 ## STUDENT ID:
 import Tkinter as tk
+import argparse
 import select
+import sys
 import time
 from Queue import Queue
 from random import randint  # Get random position in NxN grid.
@@ -33,8 +35,8 @@ class Sensor:
         :param grid_size: length of the  of the grid (which is always square).
         :param ping_period: time in seconds between multicast pings.
         """
-        self.receive_queue = Queue()
-        self.send_queue = Queue()
+        self.uiprint_queue = Queue()
+        self.command_queue = Queue()
         self.mcast_addr = mcast_addr
         self.sensor_pos = sensor_pos
         self.sensor_range = sensor_range
@@ -47,7 +49,7 @@ class Sensor:
         """
         Runner function
         """
-        ui_thread = UI(self.receive_queue, self.send_queue)
+        ui_thread = UI(self.uiprint_queue, self.command_queue)
         work_thread = Worker(self)
         ui_thread.start()
         work_thread.start()
@@ -98,8 +100,8 @@ class Worker(Thread):
     def __init__(self, sensor,
                  group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
         # Receive queue
-        self.uiprint_queue = sensor.receive_queue
-        self.command_queue = sensor.send_queue
+        self.uiprint_queue = sensor.uiprint_queue
+        self.command_queue = sensor.command_queue
         self.sensor = sensor
         self.go = True
 
@@ -221,17 +223,16 @@ class Worker(Thread):
         sequence_nr = data_decoded[1]
         initiator = data_decoded[2]
         sequence = (initiator, sequence_nr)
-        if sequence in self.echoAlgo:
-            # Run received message on echoAlgo instance
-            print('Sequence is known')
-            self.echoAlgo[sequence].received_echo(address)
-        else:
-            # Run received message on new new echoAlgo instance
-            print('Unknown sequence number creating new echoAlgo instance')
-            self.echoAlgo[sequence] = EchoAlgo(self.peer_socket,
-                                               self.sensor.neighbours,
-                                               initiator, sequence_nr)
+
         self.uiprint_queue.put('Echo or echo reply received')
+
+        # Spawn new echoAlgo instance if key is unknown
+        if sequence not in self.echoAlgo:
+            self.uiprint_queue.put('Unknown sequence number creating new echoAlgo instance')
+            self.echoAlgo[sequence] = EchoAlgo(self.peer_socket, self.sensor, initiator, sequence_nr)
+
+        # Run received message on echoAlgo instance
+        self.echoAlgo[sequence].received_echo(address)
 
     def handle_command(self, command):
         # Do a manual ping
@@ -242,7 +243,7 @@ class Worker(Thread):
             self.echoAlgo_sequence_nr += 1
             sequence = (self.sensor.sensor_pos, self.echoAlgo_sequence_nr)
             self.echoAlgo[sequence] = EchoAlgo(self.peer_socket,
-                                               self.sensor.neighbours,
+                                               self.sensor,
                                                self.sensor.sensor_pos,
                                                self.echoAlgo_sequence_nr)
             print('echo: new dict is ' + str(self.echoAlgo))
@@ -260,18 +261,19 @@ class Worker(Thread):
             self.sleep(self.sensor.ping_period)
 
 
-class EchoAlgo():
-    def __init__(self, peer_socket, neighbour_list, initiator, sequence_nr):
+class EchoAlgo:
+    def __init__(self, peer_socket, sensor, initiator, sequence_nr):
         self.message = Message()
         self.peer_socket = peer_socket
+        self.uiprint_queue = sensor.uiprint_queue
 
         self.sequence_nr = sequence_nr
         self.initiator = initiator
 
         self.father = None
-        self.replied_neighbour_list = []
+        self.replied_neighbours = []
 
-        self.neighbour_list = neighbour_list
+        self.sensor = sensor
 
     def send_echo(self, echo_type=Message().MSG_ECHO, operation_type=Message().OP_NOOP):
         """
@@ -280,44 +282,46 @@ class EchoAlgo():
         :param operation_type:
         :return:
         """
-        for neighbour in self.neighbour_list:
+        for neighbour in self.sensor.neighbours:
             msg = self.message.message_encode(echo_type,
                                               self.sequence_nr,
                                               self.initiator,
-                                              neighbour,
-                                              operation=int(operation_type))
+                                              neighbour[0],
+                                              operation_type)
             self.peer_socket.sendto(msg, (neighbour[1]))
 
     def received_echo(self, sender):
-
         # Only one neighbour, so only father, send ECHO REPLY
-        if len(self.neighbour_list) == 1:
+        if len(self.sensor.neighbours) == 1:
+            self.uiprint_queue.put('ECHOALG: ECHO REPLY only one neighbour' + str(sender))
             self.send_echo(self.message.MSG_ECHO_REPLY)
             return
 
         # Received echo message for first time, set the father
         if not self.father:
+            self.uiprint_queue.put('ECHOALG: Father not found setting father')
             self.father = sender
 
         # maybe check if items are the same?
-        # if received from all neighbours send to ECHO_REPLY to father
-        # somehow the instance should be closed, because the wave is finished
-        if len(self.neighbour_list) == len(self.replied_neighbour_list):
+        # if received from all neighbours send ECHO_REPLY to father
+        # somehow the instance should be closed, when the wave is finished
+        if len(self.sensor.neighbours) == len(self.replied_neighbours):
+            self.uiprint_queue.put('ECHOALG: ECHO REPLY father, all neighbours responded')
             self.send_echo(self.message.MSG_ECHO_REPLY)
             return
         else:
             # if already received message from this sender,send ECHO_REPLY
-            if sender in self.replied_neighbour_list:
+            if sender in self.replied_neighbours:
+                self.uiprint_queue.put('ECHOALG: already received from sender')
                 self.send_echo(self.message.MSG_ECHO_REPLY)
             # Send ECHO to all neighbours of this sensor
             else:
+                self.uiprint_queue.put('ECHOALG: send echo to neighbour')
                 self.send_echo(self.message.MSG_ECHO)
 
 
 # -- program entry point --
 if __name__ == '__main__':
-    import sys, argparse
-
     p = argparse.ArgumentParser()
     p.add_argument('--group', help='multicast group', default='224.1.1.1')
     p.add_argument('--port', help='multicast port', default=50000, type=int)
