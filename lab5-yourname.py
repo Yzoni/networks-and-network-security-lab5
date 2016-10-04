@@ -3,7 +3,6 @@
 ## STUDENT ID:
 import Tkinter as tk
 import select
-import socket
 import time
 from Queue import Queue  # Get random position in NxN grid.
 from random import randint
@@ -161,7 +160,7 @@ class Worker(Thread):
         :return: the multicast socket
         """
         # -- Create the multicast listener socket. --
-        mcast = socket.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        mcast = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         # Sets the socket address as reusable so you can run multiple instances
         # of the program on the same machine at the same time.
         mcast.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -182,7 +181,7 @@ class Worker(Thread):
         :return: Peer socket
         """
         # -- Create the peer-to-peer socket. --
-        peer = socket.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        peer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         # Set the socket multicast TTL so it can send multicast messages.
         peer.setsockopt(IPPROTO_IP, IP_MULTICAST_TTL, 5)
         # Bind the socket to a random port.
