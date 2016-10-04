@@ -4,8 +4,8 @@
 import Tkinter as tk
 import select
 import time
-from Queue import Queue  # Get random position in NxN grid.
-from random import randint
+from Queue import Queue
+from random import randint # Get random position in NxN grid.
 from socket import *
 from threading import Thread
 
@@ -41,6 +41,7 @@ class Sensor:
         self.sensor_val = sensor_val
         self.grid_size = grid_size
         self.ping_period = ping_period
+        self.neighbours = []
 
 
     def run(self):
@@ -48,8 +49,7 @@ class Sensor:
         Runner function
         """
         ui_thread = UI(self.receive_queue, self.send_queue)
-        work_thread = Worker(self.receive_queue, self.send_queue, mcast_addr,
-                             self.sensor_pos, self.sensor_range, self.sensor_val, self.grid_size, self.ping_period)
+        work_thread = Worker(self)
         ui_thread.start()
         work_thread.start()
 
@@ -95,21 +95,17 @@ class UI(Thread):
 
 
 class Worker(Thread):
-    def __init__(self, uiprint_queue, command_queue,
-                 mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period,
+    def __init__(self, sensor,
                  group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
         # Receive queue
-        self.uiprint_queue = uiprint_queue
-        self.command_queue = command_queue
-        self.mcast_addr = mcast_addr
+        self.uiprint_queue = sensor.receive_queue
+        self.command_queue = sensor.send_queue
+        self.sensor = sensor
         self.go = True
 
         # Setup sockets
         self.mcast_socket = self.create_multicast_listener_socket()
         self.peer_socket = self.create_peer_socket()
-
-        # The sensor neighbour list
-        self.neighbour_list = []
 
         # Setup sensor message helper class
         self.message = Message()
@@ -128,20 +124,37 @@ class Worker(Thread):
             readable_sockets, writable_sockets, exception_sockets = select.select([self.mcast_socket, self.peer_socket],
                                                                                   [], [], 1)
             for r in readable_sockets:
-                data = r.recvfrom(1024)
+                data, address = r.recvfrom(1024)
                 if data:
                     data_decoded = self.message.message_decode(data)
 
                     # Get message type
-                    if data_decoded[0] == self.message.MSG_PING:
-                        # TODO Do your thing
+                    msg_type = data_decoded[0]
+                    initiator = (data_decoded[2][0], data_decoded[2][1])
+                    if msg_type == self.message.MSG_PING:
                         # Add sensors to self.neighbour_list
                         # Print some message to the UI, for example the initiating sensor
-                        self.uiprint_queue.put(data_decoded[3])
-                    if data_decoded[0] == self.message.MSG_ECHO:
+                        if initiator == self.sensor.sensor_pos:
+                            self.uiprint_queue.put("Pinging...")
+                        else:
+                            self_pos = self.sensor.sensor_pos
+                            is_in_range = abs(initiator[0] - self_pos[0]) <= self.sensor.sensor_range \
+                                          and abs(initiator[1] - self_pos[1]) <= self.sensor.sensor_range
+                            print(is_in_range)
+                            if is_in_range:
+                                msg = self.message.message_encode(1, 0, initiator, self_pos)
+                                self.peer_socket.sendto(msg, address)
+                                print('sending pong to...' + str(address))
+                            self.uiprint_queue.put("Received ping from " + str(initiator))
+                    elif msg_type == self.message.MSG_ECHO:
                         self.echoAlgo.received_echo(self.neighbour_list)
                         # print some useful stuff to ui
                         self.uiprint_queue.put('something')
+                    elif msg_type == self.message.MSG_PONG:
+                        neighbour = data_decoded[3]
+                        # add to the neighbour list the position and the IP:port
+                        self.sensor.neighbours.append((neighbour, address))
+                        self.uiprint_queue.put('Received pong from neighbour' + str(neighbour))
             if not self.command_queue.empty():
                 # Handle a command received from ui
                 command = self.command_queue.get()
@@ -170,7 +183,7 @@ class Worker(Thread):
         if sys.platform == 'win32':  # windows special case
             mcast.bind(('localhost', self.mcast_addr[1]))
         else:  # should work for everything else
-            mcast.bind(self.mcast_addr)
+            mcast.bind(self.sensor.mcast_addr)
         return mcast
 
     def create_peer_socket(self):
@@ -193,11 +206,22 @@ class Worker(Thread):
 
     def handle_command(self, command):
         # Do a manual ping
-        if command == "PING":
-            # TODO Run the ping command
-            None
+        if command == "ping":
+            self.ping()
         if command == "ECHO":
             self.echoAlgo.received_echo(self.neighbour_list)
+
+    def ping(self):
+        msg = self.message.message_encode(0, 0, self.sensor.sensor_pos, self.sensor.sensor_pos)
+        self.mcast_socket.sendto(msg, self.sensor.mcast_addr)
+
+    def neighbour_discovery(self):
+        # still think that this has to be in a subprocess and run in paralel with the main worker
+        while True:
+            self.sensor.neighbours = []
+            self.ping()
+            self.sleep(self.sensor.ping_period)
+
 
 class EchoAlgo():
     def __init__(self, socket):
