@@ -347,8 +347,11 @@ class EchoAlgo:
                 # Non-Initiator received all ECHO REPLIES send to father
                 self.send_echo([self.father, (0, 0)], self.message.MSG_ECHO_REPLY)
 
+
 # -- program entry point --
 if __name__ == '__main__':
+    import sys
+
     p = argparse.ArgumentParser()
     p.add_argument('--group', help='multicast group', default='224.1.1.1')
     p.add_argument('--port', help='multicast port', default=50000, type=int)
