@@ -210,7 +210,7 @@ class Worker(Thread):
             self_pos = self.sensor.sensor_pos
             is_in_range = abs(initiator[0] - self_pos[0]) <= self.sensor.sensor_range \
                           and abs(initiator[1] - self_pos[1]) <= self.sensor.sensor_range
-            if is_in_range or not is_in_range:
+            if is_in_range:
                 msg = self.message.message_encode(self.message.MSG_PONG, 0, initiator, self_pos)
                 self.peer_socket.sendto(msg, address)
                 print('Received ping, sending pong to...' + str(initiator))
