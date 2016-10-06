@@ -267,7 +267,8 @@ class Worker(Thread):
             self.echoAlgo[sequence] = EchoAlgo(self.peer_socket,
                                                self.sensor,
                                                self.sensor.sensor_pos,
-                                               self.echoAlgo_sequence_nr)
+                                               self.echoAlgo_sequence_nr,
+                                               is_initiator=True)
 
             self.echoAlgo[sequence].send_echo([i[1] for i in self.sensor.neighbours])
 
@@ -285,13 +286,14 @@ class Worker(Thread):
 
 
 class EchoAlgo:
-    def __init__(self, peer_socket, sensor, initiator, sequence_nr):
+    def __init__(self, peer_socket, sensor, initiator, sequence_nr, is_initiator=False):
         self.message = Message()
         self.peer_socket = peer_socket
         self.uiprint_queue = sensor.uiprint_queue
 
         self.sequence_nr = sequence_nr
         self.initiator = initiator
+        self.is_initiator = is_initiator
 
         self.father = None
         self.replied_neighbours = list()
@@ -337,7 +339,12 @@ class EchoAlgo:
         self.uiprint_queue.put('ECHOALG: neighbour replied, adding sender to replied neighbours')
         self.replied_neighbours.append(sender)
 
-        if len(self.sensor.neighbours) == len(self.replied_neighbours):
+        to_be_replying_neighbours = len(self.sensor.neighbours)
+        if not self.is_initiator:
+            # Remove one neighbour, no echo is send to father so no reply is received
+            to_be_replying_neighbours -= 1
+
+        if to_be_replying_neighbours == len(self.replied_neighbours):
             # If all neighbours replied
             self.uiprint_queue.put('ECHOALG: sensor received ECHO REPLY')
             if self.initiator == self.sensor.sensor_pos:
@@ -346,7 +353,7 @@ class EchoAlgo:
                 return
             else:
                 # Non-Initiator received all ECHO REPLIES, send ECHO REPLY to father
-                self.send_echo([self.father, (0, 0)], self.message.MSG_ECHO_REPLY)
+                self.send_echo([self.father], self.message.MSG_ECHO_REPLY)
                 self.uiprint_queue.put('ECHOALG: NON initiater received all echos, send ech')
 
 
