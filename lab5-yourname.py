@@ -124,7 +124,17 @@ class Worker(Thread):
         Main runner function
         """
         self.init_run()
+
+        start_time = time.clock()  # set the timer for the neighbour discovery
+        self.neighbour_discovery()
+
         while self.go:
+            now = time.clock()
+            #  execute neighbour discovery every <ping_period> seconds
+            if now > (start_time + self.ping_period):
+                self.neighbour_discovery()
+                start_time = time.clock()
+
             readable_sockets, writable_sockets, exception_sockets = select.select([self.mcast_socket, self.peer_socket],
                                                                                   [], [], 1)
             for r in readable_sockets:
@@ -265,6 +275,11 @@ class Worker(Thread):
             self.ping()
         if command == "list":
             self.uiprint_queue.put("Here's a list with all the neighbours in range: " + str(self.sensor.neighbours))
+        if command.split()[0] == "set":
+            if len(command.split()) < 2:
+                self.uiprint_queue.put("Set command needs an argument")
+            else:
+                self.set(int(command.split()[1]))
         if command == "move":
             self.sensor.sensor_pos = random_position(self.sensor.grid_size)
             self.uiprint_queue.put("My new position is " + str(self.sensor.sensor_pos))
@@ -286,12 +301,21 @@ class Worker(Thread):
         msg = self.message.message_encode(self.message.MSG_PING, 0, self.sensor.sensor_pos, self.sensor.sensor_pos)
         self.peer_socket.sendto(msg, self.sensor.mcast_addr)
 
+    def set(self, value):
+        if value < 20:
+            self.sensor.sensor_range = 20
+        elif value > 80:
+            self.sensor.sensor_range = 80
+        else:
+            self.sensor.sensor_range = (value/10)*10
+        info = ("New range value: {}. Range value must be one of the " + \
+                "following: [20, 30, 40, 50, 60, 70, 80]").format(self.sensor.sensor_range)
+        self.uiprint_queue.put(info)
+
     def neighbour_discovery(self):
-        # still think that this has to be in a subprocess and run in parallel with the main worker
-        while True:
-            self.sensor.neighbours = []
-            self.ping()
-            self.sleep(self.sensor.ping_period)
+        self.sensor.neighbours = []
+        self.uiprint_queue.put("Executed neighbour discovery")
+        self.ping()
 
 
 class EchoAlgo:
