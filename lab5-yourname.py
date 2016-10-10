@@ -225,6 +225,11 @@ class Worker(Thread):
         self.uiprint_queue.put('Received pong from neighbour' + str(neighbour_position))
 
     def message_echo(self, data_decoded, address):
+        """
+        Handles a received ECHO message
+        :param data_decoded:
+        :param address:
+        """
         sequence_nr = data_decoded[1]
         initiator = data_decoded[2]
         sequence = (initiator, sequence_nr)
@@ -242,12 +247,16 @@ class Worker(Thread):
             self.echoAlgo[sequence].send_echo([address], self.message.MSG_ECHO_REPLY)
 
     def message_echo_reply(self, data_decoded, address):
+        """
+        Handles received ECHO_REPLY messages
+        :param data_decoded:
+        :param address:
+        """
         sequence_nr = data_decoded[1]
         initiator = data_decoded[2]
         sequence = (initiator, sequence_nr)
 
         self.uiprint_queue.put('Echo Reply received with sequence ' + str(sequence))
-
         self.echoAlgo[sequence].received_echo_reply(address)
 
     def handle_command(self, command):
@@ -269,8 +278,8 @@ class Worker(Thread):
                                                self.sensor.sensor_pos,
                                                self.echoAlgo_sequence_nr,
                                                is_initiator=True)
-
-            self.echoAlgo[sequence].send_echo([i[1] for i in self.sensor.neighbours])
+            neighbour_addresses = [i[1] for i in self.sensor.neighbours]
+            self.echoAlgo[sequence].send_echo(neighbour_addresses)
 
     def ping(self):
         self.sensor.neighbours = []
@@ -302,11 +311,10 @@ class EchoAlgo:
 
     def send_echo(self, recipients, echo_type=Message().MSG_ECHO, operation_type=Message().OP_NOOP):
         """
-        Send ECHO or ECHO_REPLY
-        :param recipients list of re
+        Sends an echo or echo reply message to all addresses in the recipient list.
+        :param recipients: as a list of address port tuples
         :param echo_type:
         :param operation_type:
-        :return:
         """
         self.uiprint_queue.put('Sending to neighbours ' + str(recipients) + str(echo_type))
         for recipient in recipients:
@@ -318,10 +326,15 @@ class EchoAlgo:
             self.peer_socket.sendto(msg, recipient)
 
     def received_echo(self, sender):
+        """
+        Received a message of type ECHO
+        :param sender: tuple of address and port of sending sensor
+        """
+        neighbour_addresses = [i[1] for i in self.sensor.neighbours]
         if len(self.sensor.neighbours) == 1:
             # Only one neighbour, so only father, send ECHO REPLY
-            self.uiprint_queue.put('ECHOALG: ECHO REPLY only one neighbour' + str(sender))
-            self.send_echo([i[1] for i in self.sensor.neighbours], self.message.MSG_ECHO_REPLY)
+            self.uiprint_queue.put('ECHOALG: ECHO REPLY only one neighbour ' + str(sender))
+            self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY)
             return
 
         if not self.father:
@@ -330,12 +343,16 @@ class EchoAlgo:
             self.father = sender
 
         # Send ECHO to all neighbours of this sensor
-        self.uiprint_queue.put('ECHOALG: send echo to neighbour')
-        neigbours_except_father = [i[1] for i in self.sensor.neighbours]
+        self.uiprint_queue.put('ECHOALG: sending echo to all neighbours')
+        neigbours_except_father = neighbour_addresses
         neigbours_except_father.remove(self.father)
         self.send_echo(neigbours_except_father, self.message.MSG_ECHO)
 
     def received_echo_reply(self, sender):
+        """
+        Received a message of type ECHO_REPLY
+        :param sender: tuple of address and port of sending sensor
+        """
         self.uiprint_queue.put('ECHOALG: neighbour replied, adding sender to replied neighbours')
         self.replied_neighbours.append(sender)
 
@@ -354,7 +371,7 @@ class EchoAlgo:
             else:
                 # Non-Initiator received all ECHO REPLIES, send ECHO REPLY to father
                 self.send_echo([self.father], self.message.MSG_ECHO_REPLY)
-                self.uiprint_queue.put('ECHOALG: NON initiater received all echos, send ech')
+                self.uiprint_queue.put('ECHOALG: NON initiater received all ECHO_REPLY, send ECHO_REPLY to father')
 
 
 # -- program entry point --
