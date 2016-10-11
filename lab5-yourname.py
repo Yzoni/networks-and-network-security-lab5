@@ -75,6 +75,7 @@ class UI(Thread):
         # update() returns false when the user quits or presses escape.
         try:
             while w.update():
+                time.sleep(0.05)
                 # if the user entered a line getline() returns a string.
                 line = w.getline()
 
@@ -254,7 +255,7 @@ class Worker(Thread):
             self.echoAlgo[sequence].received_echo(address, data_decoded)
         else:
             # Already received an echo from another sensor, so send back ECHO REPLY
-            self.uiprint_queue.put('ECHOALG: send echo to neighbour')
+            self.uiprint_queue.put('ECHOALG: received echo for second time, directly sending ECHO REPLY ')
             if operation_type == self.message.OP_NOOP:
                 self.echoAlgo[sequence].send_echo([address], self.message.MSG_ECHO_REPLY, Message().OP_NOOP, 0)
             if operation_type == self.message.OP_SIZE:
@@ -267,6 +268,8 @@ class Worker(Thread):
             if operation_type == self.message.OP_MIN:
                 self.echoAlgo[sequence].send_echo([address], self.message.MSG_ECHO_REPLY, Message().OP_MIN,
                                                   self.sensor.sensor_val)
+            if operation_type == self.message.OP_SAME:
+                self.echoAlgo[sequence].send_echo([address], self.message.MSG_ECHO_REPLY, Message().OP_SAME, 0)
 
     def message_echo_reply(self, data_decoded, address):
         """
@@ -302,7 +305,7 @@ class Worker(Thread):
         if command == 'sum':
             self.echo(Message().OP_SUM)
         if command == 'same':
-            self.echo(Message().OP_SAME)
+            self.echo(Message().OP_SAME, payload=self.sensor.sensor_val)
         if command == 'min':
             self.echo(Message().OP_MIN)
         if command == 'max':
@@ -324,7 +327,7 @@ class Worker(Thread):
                 'following: [20, 30, 40, 50, 60, 70, 80]').format(self.sensor.sensor_range)
         self.uiprint_queue.put(info)
 
-    def echo(self, operation_type=Message().OP_NOOP):
+    def echo(self, operation_type=Message().OP_NOOP, payload=0):
         self.echoAlgo_sequence_nr += 1
         sequence = (self.sensor.sensor_pos, self.echoAlgo_sequence_nr)
         self.uiprint_queue.put('Starting echo with sequence ' + str(sequence))
@@ -337,7 +340,8 @@ class Worker(Thread):
         neighbour_addresses = [i[1] for i in self.sensor.neighbours]
         self.echoAlgo[sequence].send_echo(neighbour_addresses,
                                           Message().MSG_ECHO,
-                                          operation_type)
+                                          operation_type,
+                                          payload=payload)
 
     def neighbour_discovery(self):
         self.sensor.neighbours = []
@@ -358,6 +362,7 @@ class EchoAlgo:
         self.father = None
         self.replied_neighbours = list()
         self.payload = 0
+        self.same_sensor_value = 0
 
         self.sensor = sensor
 
@@ -391,19 +396,24 @@ class EchoAlgo:
         if len(self.sensor.neighbours) == 1:
             # Only one neighbour, so only father, send ECHO REPLY
             self.uiprint_queue.put('ECHOALG: ECHO REPLY only one neighbour ' + str(sender))
-            if operation_type == Message().OP_NOOP:
+            if operation_type == self.message.OP_NOOP:
                 self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_NOOP, 0)
-            if operation_type == Message().OP_SIZE:
+            if operation_type == self.message.OP_SIZE:
                 self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_SIZE, 1)
-            if operation_type == Message().OP_SUM:
+            if operation_type == self.message.OP_SUM:
                 self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_SUM,
                                self.sensor.sensor_val)
-            if operation_type == Message().OP_MAX:
+            if operation_type == self.message.OP_MAX:
                 self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_MAX,
                                self.sensor.sensor_val)
-            if operation_type == Message().OP_MIN:
+            if operation_type == self.message.OP_MIN:
                 self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_MIN,
                                self.sensor.sensor_val)
+            if operation_type == self.message.OP_SAME:
+                if payload == self.sensor.sensor_val:
+                    self.same_sensor_value += 1
+                self.send_echo(neighbour_addresses, self.message.MSG_ECHO_REPLY, Message().OP_SAME,
+                               self.same_sensor_value)
             return
 
         if not self.father:
@@ -427,14 +437,16 @@ class EchoAlgo:
         :param data: the decoded data from the received message
         """
         operation_type = data[4]
-        payload = data[6]
+        received_payload = data[6]
 
-        if operation_type == Message().OP_SIZE:
-            self.payload += payload
-        if operation_type == Message().OP_SUM:
-            self.payload += payload
-        if operation_type == Message().OP_MIN or operation_type == Message().OP_MAX:
-            self.payload = payload
+        if operation_type == self.message.OP_SIZE:
+            self.payload += received_payload
+        if operation_type == self.message.OP_SUM:
+            self.payload += received_payload
+        if operation_type == self.message.OP_MIN or operation_type == self.message.OP_MAX:
+            self.payload = received_payload
+        if operation_type == self.message.OP_SAME:
+            self.same_sensor_value += received_payload
 
         self.uiprint_queue.put('ECHOALG: neighbour replied, adding sender to replied neighbours')
         self.replied_neighbours.append(sender)
@@ -450,34 +462,49 @@ class EchoAlgo:
             if self.initiator == self.sensor.sensor_pos:
                 # Initiator received all ECHO REPLIES
                 self.uiprint_queue.put('ECHOALG: initiator received all ECHO_REPLY, echo completed')
-                if operation_type == Message().OP_SIZE:
+                if operation_type == self.message.OP_SIZE:
                     self.uiprint_queue.put('ECHOALG: The size of the network is ' + str(self.payload + 1))
-                if operation_type == Message().OP_SUM:
+                if operation_type == self.message.OP_SUM:
                     self.uiprint_queue.put('ECHOALG: The sum of the network sensors is '
                                            + str(self.payload + self.sensor.sensor_val))
-                if operation_type == Message().OP_MAX:
+                if operation_type == self.message.OP_MAX:
                     max_value = max(self.payload, self.sensor.sensor_val)
                     self.uiprint_queue.put('ECHOALG: The max sensor value is ' + str(max_value))
-                if operation_type == Message().OP_MIN:
+                if operation_type == self.message.OP_MIN:
                     min_value = min(self.payload, self.sensor.sensor_val)
                     self.uiprint_queue.put('ECHOALG: The min sensor value is ' + str(min_value))
+                if operation_type == self.message.OP_SAME:
+                    if self.sensor.sensor_val == self.payload:
+                        self.uiprint_queue.put(
+                            'ECHOALG: Sensors with the same value as me ' + str(self.same_sensor_value + 1))
+                    else:
+                        self.uiprint_queue.put(
+                            'ECHOALG: Sensors with the same value as me ' + str(self.same_sensor_value))
                 return
             else:
                 # Non-Initiator received all ECHO REPLIES, send ECHO REPLY to father
                 self.uiprint_queue.put('ECHOALG: NON initiater received all ECHO_REPLY, sending ECHO_REPLY to father')
-                if operation_type == Message().OP_NOOP:
-                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, Message().OP_NOOP, 0)
-                if operation_type == Message().OP_SIZE:
-                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, Message().OP_SIZE, self.payload + 1)
-                if operation_type == Message().OP_SUM:
-                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, Message().OP_SUM,
+                if operation_type == self.message.OP_NOOP:
+                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_NOOP, 0)
+                if operation_type == self.message.OP_SIZE:
+                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_SIZE, self.payload + 1)
+                if operation_type == self.message.OP_SUM:
+                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_SUM,
                                    self.payload + self.sensor.sensor_val)
-                if operation_type == Message().OP_MAX:
+                if operation_type == self.message.OP_MAX:
                     max_value = max(self.payload, self.sensor.sensor_val)
-                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, Message().OP_MAX, max_value)
-                if operation_type == Message().OP_MIN:
+                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_MAX, max_value)
+                if operation_type == self.message.OP_MIN:
                     min_value = min(self.payload, self.sensor.sensor_val)
-                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, Message().OP_MIN, min_value)
+                    self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_MIN, min_value)
+                if operation_type == Message().OP_SAME:
+                    if self.sensor.sensor_val == self.payload:
+                        self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_SAME,
+                                       self.same_sensor_value + 1)
+                    else:
+                        self.send_echo([self.father], self.message.MSG_ECHO_REPLY, self.message.OP_SAME,
+                                       self.same_sensor_value)
+
 
 if __name__ == '__main__':
     import sys
@@ -499,7 +526,7 @@ if __name__ == '__main__':
     if args.value >= 0:
         value = args.value
     else:
-        value = randint(0, 100)
+        value = 50
     mcast_addr = (args.group, args.port)
 
     # RUN
