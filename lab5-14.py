@@ -250,7 +250,7 @@ class Worker(Thread):
             self_pos = self.sensor.sensor_pos
             is_in_range = abs(initiator[0] - self_pos[0]) <= self.sensor.sensor_range \
                           and abs(initiator[1] - self_pos[1]) <= self.sensor.sensor_range
-            if is_in_range:
+            if is_in_range or not is_in_range:
                 msg = self.message.message_encode(self.message.MSG_PONG, 0, initiator, self_pos)
                 self.peer_socket.sendto(msg, address)
                 self.uiprint_queue.put('Received ping, sending pong to...' + str(initiator))
@@ -455,8 +455,12 @@ class EchoAlgo:
         try:
             neigbours_except_father.remove(self.father)
         except:
-            print('EXCEPTION, TODO is it top?')
-        self.send_echo(neigbours_except_father, self.message.MSG_ECHO, operation_type)
+            print("")
+        if operation_type == self.message.OP_SAME:
+            self.payload = payload
+            self.send_echo(neigbours_except_father, self.message.MSG_ECHO, operation_type, payload=payload)
+        else:
+            self.send_echo(neigbours_except_father, self.message.MSG_ECHO, operation_type)
 
     def received_echo_reply(self, sender, data):
         """
@@ -555,7 +559,8 @@ if __name__ == '__main__':
     if args.value >= 0:
         value = args.value
     else:
-        value = randint(0, 100)
+        # value = randint(0, 100)
+        value = 50
     mcast_addr = (args.group, args.port)
 
     # RUN
