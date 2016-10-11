@@ -26,7 +26,7 @@ class Sensor:
     Communication between threads is handled by queues
     """
 
-    def __init__(self, mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period=30):
+    def __init__(self, mcast_addr, sensor_pos, sensor_range, sensor_val, grid_size, ping_period, science_mode):
         """
         :param mcast_addr: udp multicast (ip, port) tuple.
         :param sensor_pos: (x,y) sensor position tuple.
@@ -42,6 +42,7 @@ class Sensor:
         self.sensor_val = sensor_val
         self.grid_size = grid_size
         self.ping_period = ping_period
+        self.science_mode = science_mode
         self.neighbours = []  # Contains ((x position, y position), (ip_address, port))
 
     def run(self):
@@ -50,7 +51,7 @@ class Sensor:
         """
         work_thread = Worker(self)
 
-        if run_by_subprocess:
+        if self.science_mode:
             other_thread = PipeCommunication(self.uiprint_queue, self.command_queue)
         else:
             other_thread = UI(self.uiprint_queue, self.command_queue)
@@ -544,6 +545,7 @@ if __name__ == '__main__':
     p.add_argument('--value', help='sensor value', default=-1, type=int)
     p.add_argument('--period', help='period between autopings (0=off)',
                    default=5, type=int)
+    p.add_argument('--sciencemode', help='Subprocess style', default=False)
     args = p.parse_args(sys.argv[1:])
     if args.pos:
         pos = tuple(int(n) for n in args.pos.split(',')[:2])
