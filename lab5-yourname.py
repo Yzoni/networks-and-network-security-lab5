@@ -558,4 +558,4 @@ if __name__ == '__main__':
     mcast_addr = (args.group, args.port)
 
     # RUN
-    Sensor(mcast_addr, pos, args.range, value, args.grid, args.period).run()
+    Sensor(mcast_addr, pos, args.range, value, args.grid, args.period, args.sciencemode).run()
