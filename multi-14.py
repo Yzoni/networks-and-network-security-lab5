@@ -30,6 +30,7 @@ def main(nodes, r, steps):
             print("The maximum value is " + max)
             print("The sum of the values is " + sum)
 
+
 def execute_command(process, command, output):
     process.stdin.write(command)
     process.stdin.flush()
@@ -37,13 +38,17 @@ def execute_command(process, command, output):
     while True:
         line = ''
         if process.stdout:
+            """
+            Because the process.stdout.readline blocks the thread, it stops the auto-ping and generally
+            stops all further execution of the sensor logic. For this reason we were not able to provide
+            results, even though the logic here should be working.
+            """
             line = process.stdout.readline()
             print(line)
-        # if line != '' and line.split()[0] == output:
-        #     return line.split()[1]
-        # else:
-        #     return 0
-
+        if line != '' and line.split()[0] == output:
+            return line.split()[1]
+        else:
+            return 0
 
 
 if __name__ == '__main__':
