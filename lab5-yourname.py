@@ -48,16 +48,21 @@ class Sensor:
         """
         Runner function
         """
-        ui_thread = UI(self.uiprint_queue, self.command_queue)
         work_thread = Worker(self)
-        ui_thread.start()
+
+        if run_by_subprocess:
+            other_thread = PipeCommunication(self.uiprint_queue, self.command_queue)
+        else:
+            other_thread = UI(self.uiprint_queue, self.command_queue)
+
         work_thread.start()
+        other_thread.start()
 
         while work_thread.is_alive():
             time.sleep(0.5)
             # If the ui thread died also stop the worker thread
             # The ui thread could die from clicking on the UI stop button
-            if not ui_thread.is_alive():
+            if not other_thread.is_alive():
                 work_thread.stop()
                 break
 
@@ -92,6 +97,27 @@ class UI(Thread):
         except tk.TclError:
             print('GUI closed')
             return
+
+    def stop(self):
+        self.go = False
+
+
+class PipeCommunication(Thread):
+    def __init__(self, output_queue, input_queue, group=None, target=None, name=None, args=(), kwargs=None,
+                 verbose=None):
+        self.output_queue = output_queue
+        self.input_queue = input_queue
+        self.go = True
+        super(PipeCommunication, self).__init__(group, target, name, args, kwargs, verbose)
+
+    def run(self):
+        while True:
+            time.sleep(0.05)
+            while not self.output_queue.empty():
+                timestamp = time.strftime('%d/%m/%Y %H:%M:%S')
+                print(timestamp + ' | ' + self.output_queue.get())
+            for line in sys.stdin:
+                self.input_queue.put(line)
 
     def stop(self):
         self.go = False
