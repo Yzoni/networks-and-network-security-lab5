@@ -494,16 +494,16 @@ class EchoAlgo:
                 # Initiator received all ECHO REPLIES
                 self.uiprint_queue.put('ECHOALG: initiator received all ECHO_REPLY, echo completed')
                 if operation_type == self.message.OP_SIZE:
-                    self.uiprint_queue.put('ECHOALG: The size of the network is ' + str(self.payload + 1))
+                    self.uiprint_queue.put('ECHOALG_SIZE: ' + str(self.payload + 1))
                 if operation_type == self.message.OP_SUM:
-                    self.uiprint_queue.put('ECHOALG: The sum of the network sensors is '
+                    self.uiprint_queue.put('ECHOALG_SUM: '
                                            + str(self.payload + self.sensor.sensor_val))
                 if operation_type == self.message.OP_MAX:
                     max_value = max(self.payload, self.sensor.sensor_val)
-                    self.uiprint_queue.put('ECHOALG: The max sensor value is ' + str(max_value))
+                    self.uiprint_queue.put('ECHOALG_MAX: ' + str(max_value))
                 if operation_type == self.message.OP_MIN:
                     min_value = min(self.payload, self.sensor.sensor_val)
-                    self.uiprint_queue.put('ECHOALG: The min sensor value is ' + str(min_value))
+                    self.uiprint_queue.put('ECHOALG_MIN: ' + str(min_value))
                 if operation_type == self.message.OP_SAME:
                     if self.sensor.sensor_val == self.payload:
                         self.uiprint_queue.put(
