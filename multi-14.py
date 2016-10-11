@@ -1,8 +1,7 @@
 ## Netwerken en Systeembeveiliging Lab 5 - Distributed Sensor Network
-## NAME: Evgeniya Evlogieva - 11389737, Yorick de Boer 10786015
+## NAME: Evgeniya Evlogieva - 11389737, Yorick de Boer - 10786015
 
 import subprocess
-import time
 
 
 def main(nodes, r, steps):
@@ -11,7 +10,7 @@ def main(nodes, r, steps):
     print(nodes)
     for node in range(nodes):
         # Open a process.
-        p = subprocess.Popen(['python', 'lab5-yourname.py', '--sciencemode', 'True'],
+        p = subprocess.Popen(['python', 'lab5-14.py', '--sciencemode', 'True'],
                              stdout=subprocess.PIPE,
                              stdin=subprocess.PIPE)
         print(p)

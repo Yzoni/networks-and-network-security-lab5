@@ -1,5 +1,5 @@
 ## Netwerken en Systeembeveiliging Lab 5 - Distributed Sensor Network
-## NAME: Evgeniya Evlogieva - 11389737, Yorick de Boer 10786015
+## NAME: Evgeniya Evlogieva - 11389737, Yorick de Boer - 10786015
 import Tkinter as tk
 import argparse
 import select
@@ -258,6 +258,9 @@ class Worker(Thread):
                 self.uiprint_queue.put('Received ping from ' + str(initiator) + ', not in range')
 
     def message_pong(self, data_decoded, address):
+        """
+        Handles a received pong message
+        """
         neighbour_position = data_decoded[3]
         # add to the neighbour list the position and the IP:port
         self.sensor.neighbours.append((neighbour_position, address))
@@ -266,8 +269,6 @@ class Worker(Thread):
     def message_echo(self, data_decoded, address):
         """
         Handles a received ECHO message
-        :param data_decoded:
-        :param address:
         """
         sequence_nr = data_decoded[1]
         initiator = data_decoded[2]
@@ -378,6 +379,10 @@ class Worker(Thread):
 
 
 class EchoAlgo:
+    """
+    Contains all information and logic of a specific echo wave for a single sensor
+    """
+
     def __init__(self, peer_socket, sensor, initiator, sequence_nr, is_initiator=False):
         self.message = Message()
         self.peer_socket = peer_socket
@@ -398,8 +403,6 @@ class EchoAlgo:
         """
         Sends an echo or echo reply message to all addresses in the recipient list.
         :param recipients: as a list of address port tuples
-        :param echo_type:
-        :param operation_type:
         """
         self.uiprint_queue.put('Sending to neighbours ' + str(recipients) + str(echo_type))
         for recipient in recipients:
@@ -452,10 +455,7 @@ class EchoAlgo:
         # Send ECHO to all neighbours of this sensor
         self.uiprint_queue.put('ECHOALG: sending echo to all neighbours')
         neigbours_except_father = neighbour_addresses
-        try:
-            neigbours_except_father.remove(self.father)
-        except:
-            print("")
+        if self.father in neigbours_except_father: neigbours_except_father.remove(self.father)
         if operation_type == self.message.OP_SAME:
             self.payload = payload
             self.send_echo(neigbours_except_father, self.message.MSG_ECHO, operation_type, payload=payload)
