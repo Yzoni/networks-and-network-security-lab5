@@ -250,7 +250,7 @@ class Worker(Thread):
             self_pos = self.sensor.sensor_pos
             is_in_range = abs(initiator[0] - self_pos[0]) <= self.sensor.sensor_range \
                           and abs(initiator[1] - self_pos[1]) <= self.sensor.sensor_range
-            if is_in_range or not is_in_range:
+            if is_in_range:
                 msg = self.message.message_encode(self.message.MSG_PONG, 0, initiator, self_pos)
                 self.peer_socket.sendto(msg, address)
                 self.uiprint_queue.put('Received ping, sending pong to...' + str(initiator))
@@ -559,8 +559,7 @@ if __name__ == '__main__':
     if args.value >= 0:
         value = args.value
     else:
-        # value = randint(0, 100)
-        value = 50
+        value = randint(0, 100)
     mcast_addr = (args.group, args.port)
 
     # RUN
