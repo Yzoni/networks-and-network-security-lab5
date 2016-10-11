@@ -59,7 +59,7 @@ class Sensor:
         other_thread.start()
 
         while work_thread.is_alive():
-            time.sleep(0.5)
+            time.sleep(0.01)
             # If the ui thread died also stop the worker thread
             # The ui thread could die from clicking on the UI stop button
             if not other_thread.is_alive():
@@ -80,7 +80,7 @@ class UI(Thread):
         # update() returns false when the user quits or presses escape.
         try:
             while w.update():
-                time.sleep(0.05)
+                time.sleep(0.01)
                 # if the user entered a line getline() returns a string.
                 line = w.getline()
 
@@ -545,7 +545,7 @@ if __name__ == '__main__':
     p.add_argument('--range', help='sensor range', default=50, type=int)
     p.add_argument('--value', help='sensor value', default=-1, type=int)
     p.add_argument('--period', help='period between autopings (0=off)',
-                   default=5, type=int)
+                   default=0.4, type=int)
     p.add_argument('--sciencemode', help='Subprocess style', default=False)
     args = p.parse_args(sys.argv[1:])
     if args.pos:
